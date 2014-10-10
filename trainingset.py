@@ -8,17 +8,16 @@ from astrotools.idmstuff import matchlists
 import lcfit
 import lcplot
 
-
-#tsetdir = os.environ['HOME'] + \
-#      '/data/projects/LSST/Stripe82/2014October/trainingDataFiles_flux/'
-
-tsetdir = os.environ['QLFZ4DATA']+'2014October/trainingDataFiles_flux/'
+qlfz4dir = os.path.join(os.environ['QLFZ4DATA'], '2014October')
 
 def load_training_catalog():
-	return fits.getdata(tsetdir+'../TRAININGwgriReduced.fits',1)
+	trainingdataf = os.path.join(qlfz4dir,'TRAININGwgriReduced.fits')
+	return fits.getdata(trainingdataf,1)
 
 def load_class(objclass):
-	objs = np.genfromtxt(tsetdir+objclass+'/process_i.dat',
+	lcdir = os.path.join(qlfz4dir,'trainingDataFiles_flux')
+	procf = os.path.join(lcdir,objclass,'process_i.dat')
+	objs = np.genfromtxt(procf,
 	                     usecols=(1,2,3,5),names='ra,dec,z,id',
 	                     dtype=('f8','f8','f4','i8'),
 	                     converters={5: lambda s: long(s[3:-5])})
@@ -28,7 +27,7 @@ def load_class(objclass):
 		lc,blc = {},{}
 		mfit = {}
 		for b in 'gri':
-			lcdatfile = tsetdir+objclass+'/'+b+'/%d.dat' % objid
+			lcdatfile = os.path.join(lcdir,objclass,b,'%d.dat'%objid)
 			lcdat = np.loadtxt(lcdatfile,unpack=True)
 			if True:
 				# fluxes are ~1e-29, scale them
@@ -86,10 +85,4 @@ def plotone(tset,objclass,objid,**kwargs):
 	except KeyError:
 		pass
 	return fig
-
-def matchljcoadd():
-	import deepcat
-	train = load_training_catalog()
-	m = deepcat.match(train['ra'],train['decl'])
-	return m
 
