@@ -74,8 +74,9 @@ def plotone(tset,objclass,objid,**kwargs):
 	else:
 		i = np.where(tset[objclass+'cat']['deepSourceId_1']==objid)[0]
 	lc = tset[objclass]['lcs'][objid]
+	alc = tset[objclass]['annual'][objid]
 	mfit = tset[objclass]['medianfit'][objid]
-	fig = lcplot.lcplot(lc,mfit,
+	fig = lcplot.lcplot(lc,alc,mfit,
 	                    (objid,tset[objclass+'cat']['iPsfMag'][i],
                	         tset[objclass+'cat']['z'][i]),**kwargs)
 	try:

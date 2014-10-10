@@ -16,8 +16,16 @@ def make_lcstruct(mjds,fluxes,ivars,mask=None):
 	lc = np.array(zip(mjds,fluxes,ivars,mask),dtype=dtype)
 	return lc
 
-def bin_lc(lc,weights='ivar',thresh=3.0,niter=2):
-	'''also does outlier masking'''
+def bin_lc(lc,weights='equal',invvar=True,thresh=3.0,niter=2):
+	'''generate annually-averaged lightcurves
+	   weights: weighting scheme to apply when averaging points
+	       'equal' [default] points are given equal weight
+	       'midpt' points are weighted in inverse proportion to their
+	               distance from the midpoint of the observing season.
+	               i.e., Aug/Dec have lowest weights, Oct highest
+	   ivar: include inverse variance in weights
+	   also does outlier masking using sigma_clip
+	'''
 	bins = np.digitize(lc['mjd'],mjd_bins)
 	nbins = len(mjd_bins)-1
 	blc = np.zeros(nbins,dtype=lc.dtype)
@@ -29,7 +37,15 @@ def bin_lc(lc,weights='ivar',thresh=3.0,niter=2):
 		f = sigma_clip(lc['flux'][binpts],sig=thresh,iters=niter)
 		lc['mask'][binpts] |= f.mask
 		blc['mjd'][i] = np.average(lc['mjd'][binpts[~f.mask]])
-		flux,ivar = np.ma.average(f,weights=lc['ivar'][binpts],returned=True)
+		if weights == 'equal':
+			w = 1.0
+		elif weights == 'midpt':
+			delt = lc['mjd'][binpts] - blc['mjd'][i]
+			tw = lc['mjd'][binpts[-1]] - lc['mjd'][binpts[0]]
+			w = 1 - delt/tw # =1 at midpoint, ~0.5 at edges
+		if invvar:
+			w *= lc['ivar'][binpts]
+		flux,ivar = np.ma.average(f,weights=w,returned=True)
 		blc['flux'][i] = flux
 		blc['ivar'][i] = ivar
 	return lc,blc

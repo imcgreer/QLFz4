@@ -2,11 +2,12 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 from scipy.stats import scoreatpercentile
 
 import lcfit
 
-def lcplot(lc,medianfit,objdat,fig=None):
+def lcplot(lc,alc,medianfit,objdat,fig=None):
 	clr = {'g':'g','r':'r','i':'indigo','w':'orange'}
 	objid,imag,z = objdat
 	if fig is None:
@@ -19,7 +20,14 @@ def lcplot(lc,medianfit,objdat,fig=None):
 		ax = plt.subplot(4,1,pnum,sharex=ax)
 		ii = np.where(~lc[b]['mask'])[0]
 		plt.errorbar(lc[b]['mjd'][ii],lc[b]['flux'][ii],
-		             1/np.sqrt(lc[b]['ivar'][ii]),fmt='s',color=clr[b])
+		             1/np.sqrt(lc[b]['ivar'][ii]),
+		             fmt='s',color=clr[b])
+		for j in np.where(~alc[b]['mask'])[0]:
+			err = 1/np.sqrt(alc[b]['ivar'][j])
+			span = Rectangle((alc[b]['mjd'][j]-90,alc[b]['flux'][j]-err),
+			                 180,err,facecolor=clr[b],edgecolor='none',
+			                 alpha=0.5)
+			ax.add_patch(span)
 		plt.axhline(medianfit[b]['median'],color=clr[b])
 		plt.text(0.05,0.05,r'$\chi^2=%.1f/%d$' % 
 		                   (medianfit[b]['chi2'],medianfit[b]['ndof']),
