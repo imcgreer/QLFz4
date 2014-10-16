@@ -14,39 +14,12 @@ def load_training_catalog():
 	trainingdataf = os.path.join(qlfz4dir,'TRAININGwgriReduced.fits')
 	return fits.getdata(trainingdataf,1)
 
-def load_class(objclass):
-	lcdir = os.path.join(qlfz4dir,'trainingDataFiles_flux')
-	procf = os.path.join(lcdir,objclass,'process_i.dat')
-	objs = np.genfromtxt(procf,
-	                     usecols=(1,2,3,5),names='ra,dec,z,id',
-	                     dtype=('f8','f8','f4','i8'),
-	                     converters={5: lambda s: long(s[3:-5])})
-	lightcurves,annualcurves = {},{}
-	mfits = {}
-	for objid in objs['id']:
-		lc,blc = {},{}
-		mfit = {}
-		for b in 'gri':
-			lcdatfile = os.path.join(lcdir,objclass,b,'%d.dat'%objid)
-			lcdat = np.loadtxt(lcdatfile,unpack=True)
-			if True:
-				# fluxes are ~1e-29, scale them
-				lcdat[1:] *= 1e29
-			lc[b] = lcfit.make_lcstruct(*lcdat)
-			lc[b],blc[b] = lcfit.bin_lc(lc[b])
-			mfit[b] = lcfit.fit_median(lc[b])
-		lc['gri'] = lcfit.combine_lcstructs([lc[b] for b in 'gri'],
-		                                    [mfit[b] for b in 'gri'])
-		lightcurves[objid] = lc
-		annualcurves[objid] = blc
-		mfits[objid] = mfit
-	return dict(objs=objs,lcs=lightcurves,annual=annualcurves,medianfit=mfits)
-
 def load_all():
 	tset = {}
 	tset['catalog'] = load_training_catalog()
 	for c in ['QSO','GALAXY','STAR']:
-		tset[c] = load_class(c)
+		lcdir = os.path.join(qlfz4dir,'trainingDataFiles_flux',c)
+		tset[c] = lcfit.load_lsst_stripe82_lightcurves(lcdir)
 		m1,m2 = matchlists(tset[c]['objs']['id'],
 		                   tset['catalog']['deepSourceId_1'])
 		assert np.all(m1==np.arange(len(tset[c]['objs']['id'])))

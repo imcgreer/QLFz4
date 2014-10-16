@@ -92,3 +92,30 @@ def fit_spline(lc,niter=1,reject_thresh=5.0):
 	return dict(spfit=spfit,fitvals=spfit(lc['mjd']),
 	            chi2=chi2,ndof=ndof,good=ii)
 
+def load_lsst_stripe82_lightcurves(lcdir):
+	procf = os.path.join(lcdir,'process_i.dat')
+	objs = np.genfromtxt(procf,
+	                     usecols=(1,2,3,5),names='ra,dec,z,id',
+	                     dtype=('f8','f8','f4','i8'),
+	                     converters={5: lambda s: long(s[3:-5])})
+	lightcurves,annualcurves = {},{}
+	mfits = {}
+	for objid in objs['id']:
+		lc,blc = {},{}
+		mfit = {}
+		for b in 'gri':
+			lcdatfile = os.path.join(lcdir,b,'%d.dat'%objid)
+			lcdat = np.loadtxt(lcdatfile,unpack=True)
+			if True:
+				# fluxes are ~1e-29, scale them
+				lcdat[1:] *= 1e29
+			lc[b] = make_lcstruct(*lcdat)
+			lc[b],blc[b] = bin_lc(lc[b])
+			mfit[b] = fit_median(lc[b])
+		lc['gri'] = combine_lcstructs([lc[b] for b in 'gri'],
+		                              [mfit[b] for b in 'gri'])
+		lightcurves[objid] = lc
+		annualcurves[objid] = blc
+		mfits[objid] = mfit
+	return dict(objs=objs,lcs=lightcurves,annual=annualcurves,medianfit=mfits)
+
