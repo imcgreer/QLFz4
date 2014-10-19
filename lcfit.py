@@ -5,7 +5,7 @@ import numpy as np
 from scipy.interpolate import LSQUnivariateSpline
 from astropy.stats import sigma_clip
 
-mjd_bins = [51500,52000,52700,53200,53500,53850,54200,54600]
+mjd_bins = [51500,52000,52400,52750,53200,53500,53850,54200,54600]
 
 def make_lcstruct(mjds,fluxes,ivars,mask=None):
 	'''make a lightcurve from a single time series'''
@@ -16,7 +16,7 @@ def make_lcstruct(mjds,fluxes,ivars,mask=None):
 	lc = np.array(zip(mjds,fluxes,ivars,mask),dtype=dtype)
 	return lc
 
-def bin_lc(lc,weights='equal',invvar=True,thresh=3.0,niter=2):
+def bin_lc(lc,weights='equal',invvar=True,thresh=2.2,niter=2):
 	'''generate annually-averaged lightcurves
 	   weights: weighting scheme to apply when averaging points
 	       'equal' [default] points are given equal weight
@@ -56,7 +56,8 @@ def combine_lcstructs(lcs,medianfits):
 	lcs_rel = []
 	for lc,mfit in zip(lcs,medianfits):
 		lc_rel = lc.copy()
-		lc_rel['flux'] -= mfit['median']
+		lc_rel['flux'] /= mfit['median']
+		lc_rel['ivar'] *= mfit['median']**2
 		lcs_rel.append(lc_rel)
 	lc_rel = np.concatenate(lcs_rel)
 	ii = lc_rel['mjd'].argsort()
@@ -69,12 +70,10 @@ def fit_median(lc):
 	return dict(median=median_flux,chi2=chi2,ndof=len(ii))
 
 def fit_spline(lc,niter=1,reject_thresh=5.0):
-	#knots = np.array([52220.,52560.,52940.,53300.,53670.,54030,54400.])
-	# knots in the middle of the annual samplings
-	#knots = np.array([52240.,52940.,53670.,54420.])
-	# knots between the annual samplings
-	#knots = np.array([52000.,52740.,53160.,53830.,54220.])
-	knots = np.array([52740.,53160.,53830.,54220.])
+	if lc['mjd'][0] < 52000:
+		knots = np.array([52500.,53500.,54000.])
+	else:
+		knots = np.array([52700.,53500.,54000.])
 	iternum = 1
 	ii = np.where(~lc['mask'])[0]
 	while True:

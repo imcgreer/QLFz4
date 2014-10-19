@@ -60,3 +60,12 @@ def plotone(tset,objclass,objid,**kwargs):
 		pass
 	return fig
 
+def compare_deltachi2(tset):
+	import matplotlib.pyplot as plt
+	plt.figure()
+	for c,clr,sym in zip(['GALAXY','STAR','QSO'],'grb','^so'):
+		plt.scatter(tset[c+'cat']['median_r'],tset[c]['dchi2spline'],
+		            facecolor=clr,edgecolor='none',alpha=0.8,s=30,marker=sym)
+	plt.yscale('log')
+	plt.ylim(1,5e4)
+
