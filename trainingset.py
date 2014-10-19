@@ -3,7 +3,6 @@
 import os
 import numpy as np
 from astropy.io import fits
-from astrotools.idmstuff import matchlists
 
 import lcfit
 import lcplot
@@ -20,10 +19,9 @@ def load_all():
 	for c in ['QSO','GALAXY','STAR']:
 		lcdir = os.path.join(qlfz4dir,'trainingDataFiles_flux',c)
 		tset[c] = lcfit.load_lsst_stripe82_lightcurves(lcdir)
-		m1,m2 = matchlists(tset[c]['objs']['id'],
-		                   tset['catalog']['deepSourceId_1'])
-		assert np.all(m1==np.arange(len(tset[c]['objs']['id'])))
-		tset[c+'cat'] = tset['catalog'][m2]
+		ii = [np.where(tset['catalog']['deepSourceId_1']==objid)[0][0]
+		          for objid in tset[c]['objs']['id']]
+		tset[c+'cat'] = tset['catalog'][ii]
 	return tset
 
 def add_spline_fit(tset):
