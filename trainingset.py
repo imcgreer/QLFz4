@@ -7,6 +7,18 @@ from astropy.io import fits
 import lcfit
 import lcplot
 
+# Directory containing lightcurve data
+# Should have this structure:
+#  2014October/
+#    TRAININGwgriReduced.fits
+#    trainingDataFiles_flux/
+#      GALAXY/
+#        process_[gri].dat
+#        [gri]/
+#          <DEEPSOURCEID>.dat
+#      QSO/...
+#      STAR/...
+#
 qlfz4dir = os.path.join(os.environ['QLFZ4DATA'], '2014October')
 
 def load_training_catalog():
@@ -14,6 +26,9 @@ def load_training_catalog():
 	return fits.getdata(trainingdataf,1)
 
 def load_all():
+	'''Load the lightcurves and catalog data for the full training set,
+	   divided by object class.
+	'''
 	tset = {}
 	tset['catalog'] = load_training_catalog()
 	for c in ['QSO','GALAXY','STAR']:
@@ -25,6 +40,7 @@ def load_all():
 	return tset
 
 def add_spline_fit(tset):
+	'''Add the spline fits to the training set structure.'''
 	for c in ['QSO','GALAXY','STAR']:
 		sfits = {}
 		objids = tset[c+'cat']['deepSourceId_1']
@@ -39,6 +55,13 @@ def add_spline_fit(tset):
 	return tset
 
 def plotone(tset,objclass,objid,**kwargs):
+	'''Plot an object from the training set. E.g.,
+	     plotone(tset,'QSO',0) # plots the first QSO in the list
+	     ii = where(tset['QSOcat']['z']>4)[0]; plotone(tset,'QSO',ii[0])
+	       # plot a high-z quasar 
+	   keyword arguments are passed to lcplot()
+	   If the spline fit exists it will be plotted.
+	'''
 	if objid < 1e4:
 		i = objid
 		objid = tset[objclass+'cat']['deepSourceId_1'][i]

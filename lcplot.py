@@ -7,9 +7,20 @@ from scipy.stats import scoreatpercentile
 
 import lcfit
 
-def lcplot(lc,alc,medianfit,objdat,fig=None):
+def lcplot(lc,alc,medianfit,objdat=None,fig=None):
+	'''Plot a lightcurve for one object, with the gri bands stacked in
+	   three rows.
+	    lc - the gri band lightcurves
+	    alc - the annually-averaged lightcurves
+	    medianfit - duh
+	    objdat - a tuple containing (objid,imag,z) if relevant
+	    fig - existing figure to reuse
+	'''
 	clr = {'g':'g','r':'r','i':'indigo'}
-	objid,imag,z = objdat
+	if objdat is None:
+		objid,imag,z = 0,0.0,-1.0
+	else:
+		objid,imag,z = objdat
 	if fig is None:
 		fig = plt.figure(figsize=(12,5.0))
 		plt.subplots_adjust(0.04,0.04,0.99,0.95,0.20,0.24)
@@ -38,6 +49,7 @@ def lcplot(lc,alc,medianfit,objdat,fig=None):
 	return fig
 
 def add_spline_curve(fig,lc,medianfit,splinefit,deltaChi2=None):
+	'''Add the spline fit to a lightcurve figure.'''
 	xx = np.arange(51500,55000,10)
 	for ax,b in zip(fig.axes,'gri'):
 		ylim = ax.get_ylim()

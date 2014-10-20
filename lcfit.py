@@ -17,14 +17,17 @@ def make_lcstruct(mjds,fluxes,ivars,mask=None):
 	return lc
 
 def bin_lc(lc,weights='equal',invvar=True,thresh=2.2,niter=2):
-	'''generate annually-averaged lightcurves
+	'''Generate annually-averaged lightcurves.
 	   weights: weighting scheme to apply when averaging points
 	       'equal' [default] points are given equal weight
 	       'midpt' points are weighted in inverse proportion to their
 	               distance from the midpoint of the observing season.
 	               i.e., Aug/Dec have lowest weights, Oct highest
-	   ivar: include inverse variance in weights
-	   also does outlier masking using sigma_clip
+	   invvar: include inverse variance in weights
+	   thresh,niter: passed to sigma_clip 
+	   Does outlier masking for each collection of annual data points
+	   using sigma_clip, the rejected points are masked in the input 
+	   light curve.
 	'''
 	bins = np.digitize(lc['mjd'],mjd_bins)
 	nbins = len(mjd_bins)-1
@@ -51,8 +54,13 @@ def bin_lc(lc,weights='equal',invvar=True,thresh=2.2,niter=2):
 	return lc,blc
 
 def combine_lcstructs(lcs,medianfits):
-	'''combine several lightcurves into one (e.g., multiple bands)
-	   and sort by MJD'''
+	'''Combine several lightcurves into one (e.g., multiple bands)
+	   and sort by MJD.
+	   Fluxes are divided by the fitted median flux and inverse variances
+	   scaled accordingly, so that they are relative fluxes.
+	   Finally, they are sorted by MJD, and in the current implementation
+	   all trace of the original band is lost.
+	'''
 	lcs_rel = []
 	for lc,mfit in zip(lcs,medianfits):
 		lc_rel = lc.copy()
@@ -64,17 +72,26 @@ def combine_lcstructs(lcs,medianfits):
 	return lc_rel[ii]
 
 def fit_median(lc):
+	'''Compute the median flux for unmasked points, and the chi^2 statistic
+	   for those points using the median as a constant model for the flux.
+	'''
 	ii = np.where(~lc['mask'])[0]
 	median_flux = np.median(lc['flux'][ii])
 	chi2 = np.sum((lc['flux'][ii] - median_flux)**2 * lc['ivar'][ii])
 	return dict(median=median_flux,chi2=chi2,ndof=len(ii))
 
-def fit_spline(lc,niter=1,reject_thresh=5.0):
+def fit_spline(lc,niter=0,reject_thresh=5.0):
+	'''Fit a smooth spline to the lightcurve.
+	   The number of knots is empirically chosen based on examining a few
+	   lightcurves of relatively bright quasars.
+	   The fit can include iterative rejection, but by default it doesn't.
+	   The chi^2 statistic is returned using the spline model for the fluxes.
+	'''
 	if lc['mjd'][0] < 52000:
 		knots = np.array([52500.,53500.,54000.])
 	else:
 		knots = np.array([52700.,53500.,54000.])
-	iternum = 1
+	iternum = 0
 	ii = np.where(~lc['mask'])[0]
 	while True:
 		knots = knots[(knots>lc['mjd'][ii[0]]) & (knots<lc['mjd'][ii[-1]])]
@@ -92,6 +109,11 @@ def fit_spline(lc,niter=1,reject_thresh=5.0):
 	            chi2=chi2,ndof=ndof,good=ii)
 
 def load_lsst_stripe82_lightcurves(lcdir):
+	'''Read a collection of lightcurves from a directory.
+	   Compute the annual-averaged data points (which also provides 
+	   outlier masking) and the combined gri lightcurve, where the bands
+	   are combined using relative fluxes.
+	'''
 	procf = os.path.join(lcdir,'process_i.dat')
 	objs = np.genfromtxt(procf,
 	                     usecols=(1,2,3,5),names='ra,dec,z,id',
