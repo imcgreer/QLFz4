@@ -36,26 +36,10 @@ class QuasarSurvey(object):
 		self.m2M = m2M
 		self.m2M_val = m2M(m,z)
 		self.M = m - self.m2M_val
-	def set_color_selfun(self,selfun):
-		self.color_selfun = selfun
-		self.color_selval = selfun.value(self.M,self.z)
-	def set_photo_complete(self,photo_complete):
-		# have to translate from absolute to apparent mag 
-		self.photo_complete = \
-		     lambda M,z: photo_complete(M + self.m2M(M,z,inverse=True))
-		# for the internal weights, use the known observed mag
-		self.photo_complete_val = photo_complete(self.m)
-	def set_spec_complete(self,spec_complete):
-		self.spec_complete = \
-		     lambda M,z: spec_complete(M + self.m2M(M,z,inverse=True),z)
-		self.spec_complete_val = spec_complete(self.m,self.z)
-	def calc_selection_function(self):
-		self.p_Mz = lambda M,z: np.clip(self.color_selfun(M,z) * 
-		                                self.photo_complete(M,z) * 
-		                                self.spec_complete(M,z), 0, 1)
-		self.weights = 1 / np.clip(self.color_selval *
-		                           self.photo_complete_val *
-		                           self.spec_complete_val, 0, 1)
+	def set_selection_function(self,selfun):
+		self.selfun = selfun
+		self.p_Mz = lambda M,z: np.clip(self.selfun(M,z),1e-20,1)
+		self.weights = 1 / self.p_Mz(self.M,self.z)
 	def Nofz(self,zedges):
 		N = np.empty(zedges.shape[0]-1)
 		Ncorr = np.empty_like(N)
@@ -66,9 +50,7 @@ class QuasarSurvey(object):
 		return N,Ncorr
 	def take(self,ii):
 		rv = copy.copy(self)
-		for k in ['m','z','M','Kcorrval',
-		          'color_selval','photo_complete_val','spec_complete_val',
-		          'weights']:
+		for k in ['m','z','M','weights']:
 			rv.__dict__[k] = rv.__dict__[k][ii]
 		return rv
 	def __getitem__(self,index):
@@ -76,7 +58,14 @@ class QuasarSurvey(object):
 			return self.take(index)
 		else:
 			return (self.m[index],self.z[index],self.M[index])
-	def calcLF(self,Medges,zedges,dVdzdO,**kwargs):
+	def calcBinnedLF(self,Medges,zedges,volumefun,**kwargs):
+		'''calcBinnedLF(self,Medges,zedges,volumefun,**kwargs)
+		    calculate binned luminosity function from the stored survey data.
+		    Medges: array defining bin edges in absolute mag
+		    zedges: array defining bin edges in redshift
+		    volumefun: function which returns volume of bin in Mpc^3 * srad
+		               in redshift range z1,z2; called as volumefun(z1,z2) 
+		'''
 		Nsubz = kwargs.get('Nsubz',20)
 		NsubM = kwargs.get('NsubM',20)
 		ii = np.where(arr_between(self.M,(Medges[0],Medges[-1])) &
@@ -85,7 +74,7 @@ class QuasarSurvey(object):
 		zbins = zedges[:-1] + np.diff(zedges)/2
 		Mi = np.digitize(self.M,Medges)
 		zi = np.digitize(self.z,zedges)
-		# create a structured array to hold the LF bin data
+		# create a masked structured array to hold the LF bin data
 		lfShape = Mbins.shape + zbins.shape
 		lf = np.ma.array(np.ma.zeros(lfShape),
 		                 dtype=[('counts','f4'),('rawCounts','i4'),
@@ -93,14 +82,16 @@ class QuasarSurvey(object):
 		                        ('phi','f8'),('rawPhi','f8'),('sigPhi','f8')],
 		                 mask=np.zeros(lfShape,dtype=bool))
 		lf = lf.view(mrecords.mrecarray)
-		#
+		# do the counting in bins
 		for i in ii:
 			lf['rawCounts'][Mi[i]-1,zi[i]-1] += 1
 			lf['counts'][Mi[i]-1,zi[i]-1] += self.weights[i]
 			lf['countUnc'][Mi[i]-1,zi[i]-1] += self.weights[i]**2
-		#
+		# ???
 		print '''need to be careful -- bins may also not be filled in dM.
 		         need to change the last M bin to have dM = M1-m2M(mlim)'''
+		# calculate volume densities within the bins, accounting for 
+		# unfilled bins
 		dVdM = np.zeros(lfShape)
 		dM = np.diff(Medges)
 		m_min = np.empty(lfShape,dtype=float)
@@ -116,7 +107,7 @@ class QuasarSurvey(object):
 			                      (m_max[:,j] > self.m_lim))[0]
 			lf['filled'][filled_bin,j] = 1
 			# filled bins
-			dV = dVdzdO(zedges[j],zedges[j+1])
+			dV = volumefun(zedges[j],zedges[j+1])
 			dVdM[filled_bin,j] = dV * dM[j]
 			# partial bins
 			for i in partial_bin:
@@ -131,7 +122,7 @@ class QuasarSurvey(object):
 						         self.m2M(e_M[ki+1],e_z[kj+1],inverse=True)
 						if (m_min_ < self.m_lim) and (m_max_ < self.m_lim):
 							# only do filled bins in subgrid
-							e_dVdM += dVdzdO(e_z[kj],e_z[kj+1]) * \
+							e_dVdM += volumefun(e_z[kj],e_z[kj+1]) * \
 							           (e_M[ki+1] - e_M[ki])
 				dVdM[i,j] = e_dVdM
 		# construct mask from empty bins
