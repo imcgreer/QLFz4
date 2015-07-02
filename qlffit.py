@@ -38,8 +38,8 @@ class QuasarSurvey(object):
 		self.M = m - self.m2M_val
 	def set_selection_function(self,selfun):
 		self.selfun = selfun
-		self.p_Mz = lambda M,z: np.clip(self.selfun(M,z),1e-20,1)
-		self.weights = 1 / self.p_Mz(self.M,self.z)
+		self.p_Mz = lambda M,z: self.selfun(M,z,absMag=True)
+		self.weights = np.clip(self.selfun(self.m,self.z),1e-20,1.0)**-1
 	def Nofz(self,zedges):
 		N = np.empty(zedges.shape[0]-1)
 		Ncorr = np.empty_like(N)
@@ -77,11 +77,13 @@ class QuasarSurvey(object):
 		# create a masked structured array to hold the LF bin data
 		lfShape = Mbins.shape + zbins.shape
 		lf = np.ma.array(np.ma.zeros(lfShape),
-		                 dtype=[('counts','f4'),('rawCounts','i4'),
+		                 dtype=[('absMag','f4'),
+		                        ('counts','f4'),('rawCounts','i4'),
 		                        ('countUnc','f4'),('filled','i2'),
 		                        ('phi','f8'),('rawPhi','f8'),('sigPhi','f8')],
 		                 mask=np.zeros(lfShape,dtype=bool))
 		lf = lf.view(mrecords.mrecarray)
+		lf['absMag'] = np.repeat(Mbins,len(zbins)).reshape(lfShape)
 		# do the counting in bins
 		for i in ii:
 			lf['rawCounts'][Mi[i]-1,zi[i]-1] += 1
