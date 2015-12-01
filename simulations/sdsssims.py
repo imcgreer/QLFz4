@@ -14,9 +14,9 @@ lumGrid = {
 
 fluxGrid = {
   'GridType':'FluxRedshiftGrid',
-  'mRange':(18.5, 23.5, 0.5),
-  'zRange':(2.5,4.5,0.1),
-  'nPerBin':25,
+  'mRange':(18.5, 23.5, 0.1),
+  'zRange':(3.25,4.5,0.05),
+  'nPerBin':10,
   'ObsBand':'SDSS-i',
   'RestBand':1450.,
 }
@@ -57,7 +57,7 @@ else:
 simpars = {
   'FileName':name,
   'waveRange':(3000.,10000.),
-  'SpecResolution':500,
+  'SpecDispersion':500,
   'DispersionScale':'logarithmic',
   'GridParams':grid,
   'Cosmology':WMAP9,
@@ -67,7 +67,7 @@ simpars = {
     'ForestType':'Sightlines', # 'Grid' 'OneToOne'
 #    'GridzBins':(0.1,4.51,0.25),
     'zRange':(0.0,4.5),
-    'NumLinesOfSight':25,
+    'NumLinesOfSight':500,
     'Rmin':30000.,
   },
   'QuasarModelParams':{
