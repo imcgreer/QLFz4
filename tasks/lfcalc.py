@@ -36,8 +36,9 @@ def loadSelectionGrid(m_arr, z_arr, fraction, binsM, binsZ):
 	df['zbin'] = pd.cut(df.z, binsZ)
 	fractionCutDF = fraction #.reset_index()
 	fractionCutDF.columns = ['M', 'z', 'fraction']
-	return pd.merge(df, fractionCutDF, right_on=('M', 'z'),
-	                left_on=('Mbin', 'zbin'))['fraction'].values
+	joined = pd.merge(df, fractionCutDF, right_on=('M', 'z'),
+	                  left_on=('Mbin', 'zbin'))['fraction'].values
+	return joined.filledna(0).values
 
 class SelectionFunction(object):
 	def __init__(self,simName,simDir,photo_complete,spec_complete,m2M,
