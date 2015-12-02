@@ -8,6 +8,8 @@ from astropy.cosmology import WMAP9
 from simqso import qsoSimulation,lumfun,sqanalysis
 from simqso.sqgrids import VariedEmissionLineGrid
 
+from qsomodels import *
+
 simdir = './'
 
 grids = {
@@ -35,28 +37,6 @@ grids = {
     'zRange':(3.4,4.6),
     'ObsBand':'CFHT-i',
     'RestBand':1450.,
-  },
-}
-
-fiducial_linetweak_model = {
-  'ContinuumParams':{
-    'ContinuumModel':'GaussianPLawDistribution',
-    'PowerLawSlopes':[(-1.5,0.3),1100,(-0.5,0.3),
-                  5700,(-0.37,0.3),9730,(-1.7,0.3),22300,(-1.03,0.3)],
-  },
-  'EmissionLineParams':{
-    'EmissionLineModel':'VariedEmissionLineGrid',
-    'fixLineProfiles':False,
-    'minEW':0.0,
-    'EmLineIndependentScatter':False,
-    'scaleEWs':{'LyAb':1.1,'LyAn':1.1,
-                'CIVb':0.75,'CIVn':0.75,
-                'CIII]b':0.8,'CIII]n':0.8,
-                'MgIIb':0.8,'MgIIn':0.8},
-  },
-  'IronEmissionParams':{
-    'FeScalings':[(0,1540,0.5),(1540,1680,2.0),(1680,1868,1.6),
-                  (1868,2140,1.0),(2140,3500,1.0)],
   },
 }
 
