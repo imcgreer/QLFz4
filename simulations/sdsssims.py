@@ -4,6 +4,8 @@ from numpy import uint32
 from astropy.cosmology import WMAP9
 from simqso import qsoSimulation, lumfun
 
+from qsomodels import *
+
 grids = {
   'SDSS_Lum':{
     'GridType':'LuminosityRedshiftGrid',
