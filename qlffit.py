@@ -5,6 +5,7 @@ import itertools
 import numpy as np
 from numpy.ma import mrecords
 from scipy.integrate import dblquad,romberg
+from scipy import optimize
 
 def arr_between(a,b):
 	return np.logical_and(a>=b[0],a<=b[1])
@@ -136,16 +137,16 @@ class QuasarSurvey(object):
 		lf['sigPhi'] = np.sqrt(lf['countUnc']) / (dVdM * self.area_srad)
 		return lf
 
-def _integrate_fast(integrand,zrange,Mrange,**kwargs):
-	kwargs.setdefault('tol',kwargs.get('epsabs',1e-3))
-	kwargs.setdefault('rtol',kwargs.get('epsrel',1e-3))
-	inner = lambda z: romberg(integrand,*Mrange,args=(z,),**kwargs)
-	outer = romberg(inner,*zrange,**kwargs)
+def _integrate_fast(integrand,zrange,Mrange,integrate_kwargs):
+	integrate_kwargs.setdefault('tol',integrate_kwargs.get('epsabs',1e-3))
+	integrate_kwargs.setdefault('rtol',integrate_kwargs.get('epsrel',1e-3))
+	inner = lambda z: romberg(integrand,*Mrange,args=(z,),**integrate_kwargs)
+	outer = romberg(inner,*zrange,**integrate_kwargs)
 	return outer
 
-def _integrate_full(integrand,zrange,Mrange,nM,nz,**kwargs):
-	kwargs.setdefault('epsabs',1e-3)
-	kwargs.setdefault('epsrel',1e-3)
+def _integrate_full(integrand,zrange,Mrange,nM,nz,integrate_kwargs):
+	integrate_kwargs.setdefault('epsabs',1e-3)
+	integrate_kwargs.setdefault('epsrel',1e-3)
 	# do a full double integration, but break it up into chunks
 	zz = np.linspace(zrange[0],zrange[1],nz)
 	MM = np.linspace(Mrange[0],Mrange[1],nM)
@@ -154,12 +155,12 @@ def _integrate_full(integrand,zrange,Mrange,nM,nz,**kwargs):
 		for M1,M2 in zip(MM[:-1],MM[1:]):
 			intp,err = dblquad(integrand, z1, z2,
 			                   lambda z: M1,lambda z: M2,
-			                   **kwargs)
+			                   **integrate_kwargs)
 			_sum += intp
 	return _sum
 
 def joint_qlf_likelihood_fun(par,surveys,Phi_Mz,dV_dzdO,zrange,Mrange,
-                             nM,nz,fast):
+                             nM,nz,fast,integrate_kwargs):
 	first_term,second_term = 0.0,0.0
 	for s in surveys:
 		# first term: sum over each observed quasar
@@ -171,9 +172,10 @@ def joint_qlf_likelihood_fun(par,surveys,Phi_Mz,dV_dzdO,zrange,Mrange,
 		# second term: integral of LF over available volume
 		integrand = lambda M,z: Phi_Mz(M,z,*par) * s.p_Mz(M,z) * dV_dzdO(z)
 		if fast:
-			_sum = _integrate_fast(integrand,zrange,Mrange)
+			_sum = _integrate_fast(integrand,zrange,Mrange,integrate_kwargs)
 		else:
-			_sum = _integrate_full(integrand,zrange,Mrange,nM,nz)
+			_sum = _integrate_full(integrand,zrange,Mrange,
+			                       nM,nz,integrate_kwargs)
 		second_term += 2 * s.area_srad * _sum
 	#
 	print 'testing ',par,first_term,second_term
@@ -189,12 +191,12 @@ class FitMethod(object):
 
 class NelderMeadFit(FitMethod):
 	def __init__(self):
-		self.routine = opt.fmin
+		self.routine = optimize.fmin
 		self.args = ()
 		self.kwargs = {'full_output':True,'xtol':1e-3,'ftol':1e-3}
 
 def joint_qlf_mle(surveys,Phi_Mz,ival,dVdzdO,zrange,Mrange,
-                  nM=20,nz=10,fast=True,minimizer=None):
+                  minimizer=None,nM=20,nz=10,fast=True,integrate_kwargs={}):
 	'''
 	Maximum likelihood estimation of QLF parameters, using data points
 	from multiple surveys.
@@ -212,7 +214,8 @@ def joint_qlf_mle(surveys,Phi_Mz,ival,dVdzdO,zrange,Mrange,
 	#scale = Phi_Mz.get_scale()
 	#Phi_Mz.set_scale('linear')
 	fit = minimizer(joint_qlf_likelihood_fun,ival,*minimizer.args,
-	                args=(surveys,Phi_Mz,dVdzdO,zrange,Mrange,nM,nz,fast),
+	                args=(surveys,Phi_Mz,dVdzdO,zrange,Mrange,
+	                      nM,nz,fast,integrate_kwargs),
 	                **minimizer.kwargs)
 	#Phi_Mz.set_scale(scale)
 	return fit
