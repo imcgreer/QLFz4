@@ -4,6 +4,7 @@ import copy
 import itertools
 import numpy as np
 from numpy.ma import mrecords
+from scipy.integrate import dblquad,romberg
 
 def arr_between(a,b):
 	return np.logical_and(a>=b[0],a<=b[1])
@@ -134,4 +135,85 @@ class QuasarSurvey(object):
 		lf['rawPhi'] = lf['rawCounts'] / (dVdM * self.area_srad)
 		lf['sigPhi'] = np.sqrt(lf['countUnc']) / (dVdM * self.area_srad)
 		return lf
+
+def _integrate_fast(integrand,zrange,Mrange,**kwargs):
+	kwargs.setdefault('tol',kwargs.get('epsabs',1e-3))
+	kwargs.setdefault('rtol',kwargs.get('epsrel',1e-3))
+	inner = lambda z: romberg(integrand,*Mrange,args=(z,),**kwargs)
+	outer = romberg(inner,*zrange,**kwargs)
+	return outer
+
+def _integrate_full(integrand,zrange,Mrange,nM,nz,**kwargs):
+	kwargs.setdefault('epsabs',1e-3)
+	kwargs.setdefault('epsrel',1e-3)
+	# do a full double integration, but break it up into chunks
+	zz = np.linspace(zrange[0],zrange[1],nz)
+	MM = np.linspace(Mrange[0],Mrange[1],nM)
+	_sum = 0
+	for z1,z2 in zip(zz[:-1],zz[1:]):
+		for M1,M2 in zip(MM[:-1],MM[1:]):
+			intp,err = dblquad(integrand, z1, z2,
+			                   lambda z: M1,lambda z: M2,
+			                   **kwargs)
+			_sum += intp
+	return _sum
+
+def joint_qlf_likelihood_fun(par,surveys,Phi_Mz,dV_dzdO,zrange,Mrange,
+                             nM,nz,fast):
+	first_term,second_term = 0.0,0.0
+	for s in surveys:
+		# first term: sum over each observed quasar
+		# this used to work...
+		#first_term += -2*np.sum(np.log(Phi_Mz(s.M,s.z,*par)))
+		prod = [ Phi_Mz(M,z,*par) for M,z in zip(s.M,s.z) ]
+		prod = np.clip(prod,1e-20,np.inf)
+		first_term += -2*np.sum(np.log(prod))
+		# second term: integral of LF over available volume
+		integrand = lambda M,z: Phi_Mz(M,z,*par) * s.p_Mz(M,z) * dV_dzdO(z)
+		if fast:
+			_sum = _integrate_fast(integrand,zrange,Mrange)
+		else:
+			_sum = _integrate_full(integrand,zrange,Mrange,nM,nz)
+		second_term += 2 * s.area_srad * _sum
+	#
+	print 'testing ',par,first_term,second_term
+	return first_term + second_term
+
+class FitMethod(object):
+	def __init__(self):
+		pass
+	def __call__(self,*args,**kwargs):
+		return self.routine(*args,**kwargs)
+	def set_bounds(self,exclude_list=[]):
+		pass
+
+class NelderMeadFit(FitMethod):
+	def __init__(self):
+		self.routine = opt.fmin
+		self.args = ()
+		self.kwargs = {'full_output':True,'xtol':1e-3,'ftol':1e-3}
+
+def joint_qlf_mle(surveys,Phi_Mz,ival,dVdzdO,zrange,Mrange,
+                  nM=20,nz=10,fast=True,minimizer=None):
+	'''
+	Maximum likelihood estimation of QLF parameters, using data points
+	from multiple surveys.
+	-
+	surveys: list of QuasarSurvey objects, contains data points and
+	         survey parameters for each survey
+	 Phi_Mz: function Phi(M,z) that returns comoving number density at M,z
+       ival: vector of initial values for parameters in Phi
+	 dVdzdO: dV/dz*dOmega 
+	'''
+	if minimizer is None:
+		minimizer = NelderMeadFit()
+	# resetting __call__ is no longer working?
+	Phi_Mz = Phi_Mz.Phi
+	#scale = Phi_Mz.get_scale()
+	#Phi_Mz.set_scale('linear')
+	fit = minimizer(joint_qlf_likelihood_fun,ival,*minimizer.args,
+	                args=(surveys,Phi_Mz,dVdzdO,zrange,Mrange,nM,nz,fast),
+	                **minimizer.kwargs)
+	#Phi_Mz.set_scale(scale)
+	return fit
 
