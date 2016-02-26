@@ -25,8 +25,8 @@ DEBUG = False
 ###
 
 DATAROOT = "/Users/yusra/z4ML/"
-IN_SIMSFILENAME = '/Users/yusra/sed/moreQuasars2/testnew_flux.fits'
-OUT_SIMS_W_VAR_FILENAME = 'simulatedQuasars2.csv'
+IN_SIMSFILENAME = '/Users/yusra/SDSS_flux.fits'
+OUT_SIMS_W_VAR_FILENAME = 'SDSS_flux_var.csv'
 
 
 def mag2FluxColor(magColor):
