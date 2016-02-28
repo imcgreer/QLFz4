@@ -17,6 +17,7 @@ for f in 'ugriz':
     lc[f].columns = [s+'_%s'%(f) for s in keys]
 
 
-df = lc['u'].join(lc['g']).join(lc['r']).join(lc['i']).join(lc['z'])
+df = lc['i'].join(lc['u'], how='left').join(lc['g'],
+		how='left').join(lc['r'], how='left').join(lc['z'], how='left')
 df.to_csv(os.path.join(path,'ugrizMetrics.csv'))
 
