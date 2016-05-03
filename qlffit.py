@@ -166,7 +166,8 @@ def joint_qlf_likelihood_fun(par,surveys,Phi_Mz,dV_dzdO,zrange,Mrange,
 		# first term: sum over each observed quasar
 		# this used to work...
 		#first_term += -2*np.sum(np.log(Phi_Mz(s.M,s.z,*par)))
-		prod = [ Phi_Mz(M,z,*par) for M,z in zip(s.M,s.z) ]
+		prod = [ p_Mz*Phi_Mz(M,z,*par) 
+		            for M,z,p_Mz in zip(s.M,s.z,s.weights**-1) ]
 		prod = np.clip(prod,1e-20,np.inf)
 		first_term += -2*np.sum(np.log(prod))
 		# second term: integral of LF over available volume
