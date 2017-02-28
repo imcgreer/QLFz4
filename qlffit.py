@@ -6,6 +6,7 @@ import numpy as np
 from numpy.ma import mrecords
 from scipy.integrate import dblquad,romberg
 from scipy import optimize
+from astropy.table import Table
 
 def arr_between(a,b):
 	return np.logical_and(a>=b[0],a<=b[1])
@@ -78,19 +79,19 @@ class QuasarSurvey(object):
 		zi = np.digitize(self.z,zedges)
 		# create a masked structured array to hold the LF bin data
 		lfShape = Mbins.shape + zbins.shape
-		lf = np.ma.array(np.ma.zeros(lfShape),
-		                 dtype=[('absMag','f4'),
-		                        ('counts','f4'),('rawCounts','i4'),
-		                        ('countUnc','f4'),('filled','i2'),
-		                        ('phi','f8'),('rawPhi','f8'),('sigPhi','f8')],
-		                 mask=np.zeros(lfShape,dtype=bool))
-		lf = lf.view(mrecords.mrecarray)
-		lf['absMag'] = np.repeat(Mbins,len(zbins)).reshape(lfShape)
+		lf = Table(masked=True)
+		lf['absMag'] = Mbins.astype(np.float32)
+		lf['counts'] = np.zeros(lfShape,dtype=np.float32)
+		lf['rawCounts'] = np.zeros(lfShape,dtype=np.int32)
+		lf['countUnc'] = np.zeros(lfShape,dtype=np.float32)
+		lf['filled'] = np.zeros(lfShape,dtype=np.bool)
+		lf['phi'] = np.zeros(lfShape,dtype=np.float64)
+		lf['rawPhi'] = np.zeros(lfShape,dtype=np.float64)
+		lf['sigPhi'] = np.zeros(lfShape,dtype=np.float64)
 		# do the counting in bins
-		for i in ii:
-			lf['rawCounts'][Mi[i]-1,zi[i]-1] += 1
-			lf['counts'][Mi[i]-1,zi[i]-1] += self.weights[i]
-			lf['countUnc'][Mi[i]-1,zi[i]-1] += self.weights[i]**2
+		np.add.at(lf['rawCounts'],(Mi[ii]-1,zi[ii]-1),1)
+		np.add.at(lf['counts'],(Mi[ii]-1,zi[ii]-1),self.weights[ii])
+		np.add.at(lf['countUnc'],(Mi[ii]-1,zi[ii]-1),self.weights[ii]**2)
 		# ???
 		print '''need to be careful -- bins may also not be filled in dM.
 		         need to change the last M bin to have dM = M1-m2M(mlim)'''
@@ -109,7 +110,7 @@ class QuasarSurvey(object):
 			                      (m_max[:,j] < self.m_lim))[0]
 			partial_bin = np.where((m_min[:,j] < self.m_lim) & 
 			                      (m_max[:,j] > self.m_lim))[0]
-			lf['filled'][filled_bin,j] = 1
+			lf['filled'][filled_bin,j] = True
 			# filled bins
 			dV = volumefun(zedges[j],zedges[j+1])
 			dVdM[filled_bin,j] = dV * dM[j]
@@ -129,12 +130,12 @@ class QuasarSurvey(object):
 							e_dVdM += volumefun(e_z[kj],e_z[kj+1]) * \
 							           (e_M[ki+1] - e_M[ki])
 				dVdM[i,j] = e_dVdM
-		# construct mask from empty bins
-		lf.mask[:] = (lf['rawCounts']==0) | (dVdM == 0)
 		# calculate luminosity function from ~ counts/volume
-		lf['phi'] = lf['counts'] / (dVdM * self.area_srad)
-		lf['rawPhi'] = lf['rawCounts'] / (dVdM * self.area_srad)
-		lf['sigPhi'] = np.sqrt(lf['countUnc']) / (dVdM * self.area_srad)
+		mask = (lf['rawCounts']==0) | (dVdM == 0)
+		vol = np.ma.array(dVdM * self.area_srad, mask=mask)
+		lf['phi'] = np.ma.divide(lf['counts'],vol)
+		lf['rawPhi'] = np.ma.divide(lf['rawCounts'],vol)
+		lf['sigPhi'] = np.ma.divide(np.ma.sqrt(lf['countUnc']),vol)
 		return lf
 
 def _integrate_fast(integrand,zrange,Mrange,integrate_kwargs):
