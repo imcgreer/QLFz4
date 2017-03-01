@@ -9,7 +9,7 @@ from scipy import optimize
 from astropy.table import Table
 
 def arr_between(a,b):
-	return np.logical_and(a>=b[0],a<=b[1])
+	return np.logical_and(a>=b[0],a<b[1])
 
 class QuasarSurvey(object):
 	def __init__(self,m,z,m_lim,skyArea,m2M):
@@ -166,13 +166,13 @@ def joint_qlf_likelihood_fun(par,surveys,Phi_Mz,dV_dzdO,zrange,Mrange,
 	for s in surveys:
 		# first term: sum over each observed quasar
 		# this used to work...
-		#first_term += -2*np.sum(np.log(Phi_Mz(s.M,s.z,*par)))
-		prod = [ p_Mz*Phi_Mz(M,z,*par) 
+		#first_term += -2*np.sum(np.log(Phi_Mz(s.M,s.z,par)))
+		prod = [ p_Mz*Phi_Mz(M,z,par) 
 		            for M,z,p_Mz in zip(s.M,s.z,s.weights**-1) ]
 		prod = np.clip(prod,1e-20,np.inf)
 		first_term += -2*np.sum(np.log(prod))
 		# second term: integral of LF over available volume
-		integrand = lambda M,z: Phi_Mz(M,z,*par) * s.p_Mz(M,z) * dV_dzdO(z)
+		integrand = lambda M,z: Phi_Mz(M,z,par) * s.p_Mz(M,z) * dV_dzdO(z)
 		if fast:
 			_sum = _integrate_fast(integrand,zrange,Mrange,integrate_kwargs)
 		else:
@@ -211,14 +211,12 @@ def joint_qlf_mle(surveys,Phi_Mz,ival,dVdzdO,zrange,Mrange,
 	'''
 	if minimizer is None:
 		minimizer = NelderMeadFit()
-	# resetting __call__ is no longer working?
-	Phi_Mz = Phi_Mz.Phi
-	#scale = Phi_Mz.get_scale()
-	#Phi_Mz.set_scale('linear')
+	scale = Phi_Mz.scale
+	Phi_Mz.set_scale('linear')
 	fit = minimizer(joint_qlf_likelihood_fun,ival,*minimizer.args,
 	                args=(surveys,Phi_Mz,dVdzdO,zrange,Mrange,
 	                      nM,nz,fast,integrate_kwargs),
 	                **minimizer.kwargs)
-	#Phi_Mz.set_scale(scale)
+	Phi_Mz.set_scale(scale)
 	return fit
 
