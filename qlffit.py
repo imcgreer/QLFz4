@@ -9,6 +9,7 @@ from scipy.ndimage.filters import convolve
 from scipy import optimize
 from astropy.table import Table
 from simqso.lumfun import interp_dVdzdO
+from simqso import lumfun
 
 def arr_between(a,b):
 	return np.logical_and(a>=b[0],a<b[1])
@@ -93,7 +94,7 @@ class QuasarSurvey(object):
 		    zedges: array defining bin edges in redshift
 		'''
 		# kind of hacky to access cosmo through m2M...
-		dVdzdO = interp_dVdzdO((zedges[0]-0.1,zedges[1]+0.1),self.m2M.cosmo)
+		dVdzdO = interp_dVdzdO(zedges[0],self.m2M.cosmo)
 		#
 		Mbins = Medges[:-1] + np.diff(Medges)/2
 		zbins = zedges[:-1] + np.diff(zedges)/2
@@ -153,7 +154,7 @@ def _integrate_full(integrand,zrange,Mrange,nM,nz,integrate_kwargs):
 	return _sum
 
 def joint_qlf_likelihood_fun(par,surveys,Phi_Mz,dV_dzdO,zrange,Mrange,
-                             nM,nz,fast,integrate_kwargs):
+                             nM,nz,fast,integrate_kwargs,verbose):
 	first_term,second_term = 0.0,0.0
 	for s in surveys:
 		# first term: sum over each observed quasar
@@ -172,7 +173,8 @@ def joint_qlf_likelihood_fun(par,surveys,Phi_Mz,dV_dzdO,zrange,Mrange,
 			                       nM,nz,integrate_kwargs)
 		second_term += 2 * s.area_srad * _sum
 	#
-	print 'testing ',par,first_term,second_term
+	if verbose:
+		print 'testing ',par,first_term,second_term
 	return first_term + second_term
 
 class FitMethod(object):
@@ -184,31 +186,67 @@ class FitMethod(object):
 		pass
 
 class NelderMeadFit(FitMethod):
-	def __init__(self):
+	def __init__(self,verbose=False):
 		self.routine = optimize.fmin
 		self.args = ()
-		self.kwargs = {'full_output':True,'xtol':1e-3,'ftol':1e-3}
+		self.kwargs = {'full_output':True,'xtol':1e-3,'ftol':1e-3,
+		               'disp':verbose}
 
-def joint_qlf_mle(surveys,Phi_Mz,ival,dVdzdO,zrange,Mrange,
-                  minimizer=None,nM=20,nz=10,fast=True,integrate_kwargs={}):
-	'''
-	Maximum likelihood estimation of QLF parameters, using data points
-	from multiple surveys.
-	-
-	surveys: list of QuasarSurvey objects, contains data points and
-	         survey parameters for each survey
-	 Phi_Mz: function Phi(M,z) that returns comoving number density at M,z
-       ival: vector of initial values for parameters in Phi
-	 dVdzdO: dV/dz*dOmega 
-	'''
-	if minimizer is None:
-		minimizer = NelderMeadFit()
-	scale = Phi_Mz.scale
-	Phi_Mz.set_scale('linear')
-	fit = minimizer(joint_qlf_likelihood_fun,ival,*minimizer.args,
-	                args=(surveys,Phi_Mz,dVdzdO,zrange,Mrange,
-	                      nM,nz,fast,integrate_kwargs),
-	                **minimizer.kwargs)
-	Phi_Mz.set_scale(scale)
-	return fit
+class JointQLFFitter(object):
+	def __init__(self,Mrange,zrange,cosmo,qlfModel,**kwargs):
+		self.likefun = joint_qlf_likelihood_fun
+		self.Mrange = Mrange
+		self.zrange = zrange
+		self.dVdzdO = lumfun.interp_dVdzdO(zrange,cosmo)
+		self.qlfModel = qlfModel
+		self.qlfModel.set_scale('linear')
+		self.fitMethod = kwargs.get('fit_method',NelderMeadFit())
+		self.nM = kwargs.get('nM',20)
+		self.nz = kwargs.get('nz',10)
+		self.fast = kwargs.get('fast',True)
+		self.integrate_kwargs = kwargs.get('integrate_kwargs',{})
+		self.verbose = kwargs.get('verbose',False)
+		self.likefunArgs = (self.dVdzdO,self.zrange,self.Mrange,
+		                    self.nM,self.nz,self.fast,
+		                    self.integrate_kwargs,self.verbose)
+	def fit(self,surveys,qlfModel=None,initVals=None):
+		if qlfModel is None:
+			qlfModel = self.qlfModel
+		if initVals is None:
+			initVals = list(qlfModel.getpar())
+		likefunArgs = (surveys,qlfModel) + self.likefunArgs
+		res = self.fitMethod(self.likefun,initVals,*self.fitMethod.args,
+		                     args=likefunArgs,**self.fitMethod.kwargs)
+		self.lastFit = res
+		return res
+	def getModel(self):
+		rv = self.qlfModel.copy()
+		rv.setpar(self.lastFit[0])
+		return rv
+	def varyFitParam(self,paramName,surveys,ntry=50):
+		#
+		likefunArgs = (surveys,self.qlfModel) + self.likefunArgs
+		S0 = self.likefun(self.qlfModel.getpar(),*likefunArgs)
+		print 'S0 is ',S0,' at ',self.qlfModel.params[paramName].get()
+		#
+		for i,pval0 in self.qlfModel.params[paramName].iterfree():
+			fitvals = [(pval0,S0)]
+			qlfModel = self.qlfModel.copy()
+			print 'trying %s[#%d]' % (paramName,i)
+			for sgn in [-1,1]:
+				delv = np.abs(pval0) * sgn*np.logspace(-2,0,ntry)
+				for dv in delv:
+					qlfModel.params[paramName].set(pval0+dv,i=i)
+					qlfModel.params[paramName].fix(i)
+					S = self.fit(surveys,qlfModel=qlfModel)[1]
+					qlfModel.params[paramName].free(i)
+					if sgn < 0:
+						fitvals.insert(0, (pval0+dv, S) )
+					else:
+						fitvals.append(   (pval0+dv, S) )
+					print pval0,S0,pval0+dv,S,S-S0
+					if S-S0 > 10:
+						# this is more than 3 sigma
+						break
+		return np.array(fitvals)
 
