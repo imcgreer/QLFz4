@@ -5,8 +5,10 @@ import itertools
 import numpy as np
 from numpy.ma import mrecords
 from scipy.integrate import dblquad,romberg
+from scipy.ndimage.filters import convolve
 from scipy import optimize
 from astropy.table import Table
+from simqso.lumfun import interp_dVdzdO
 
 def arr_between(a,b):
 	return np.logical_and(a>=b[0],a<b[1])
@@ -61,81 +63,71 @@ class QuasarSurvey(object):
 			return self.take(index)
 		else:
 			return (self.m[index],self.z[index],self.M[index])
-	def calcBinnedLF(self,Medges,zedges,volumefun,**kwargs):
-		'''calcBinnedLF(self,Medges,zedges,volumefun,**kwargs)
+	@staticmethod
+	def init_lf_table(Mbins,zbins):
+		lfShape = Mbins.shape + zbins.shape
+		lfTab = Table(masked=True)
+		lfTab['absMag'] = Mbins.astype(np.float32)
+		lfTab['counts'] = np.zeros(lfShape,dtype=np.float32)
+		lfTab['rawCounts'] = np.zeros(lfShape,dtype=np.int32)
+		lfTab['countUnc'] = np.zeros(lfShape,dtype=np.float32)
+		lfTab['filled'] = np.zeros(lfShape,dtype=np.bool)
+		lfTab['phi'] = np.zeros(lfShape,dtype=np.float64)
+		lfTab['rawPhi'] = np.zeros(lfShape,dtype=np.float64)
+		lfTab['sigPhi'] = np.zeros(lfShape,dtype=np.float64)
+		return lfTab
+	def getinbounds(self,Medges,zedges):
+		# identify which bins are within the flux limit by converting the
+		# the luminosity bins to fluxes
+		Mbounds,zbounds = np.meshgrid(Medges,zedges,indexing='ij')
+		mbounds = Mbounds + self.m2M(Mbounds,zbounds,inverse=True)
+		inbounds = mbounds < self.m_lim
+		# this sums the bin edges 2x2: 
+		#   4=full covg, 0=no covg, otherwise partial
+		inbounds = convolve(inbounds.astype(int),np.ones((2,2)))[:-1,:-1]
+		return inbounds
+	def calcBinnedLF(self,Medges,zedges,**kwargs):
+		'''calcBinnedLF(self,Medges,zedges,**kwargs)
 		    calculate binned luminosity function from the stored survey data.
 		    Medges: array defining bin edges in absolute mag
 		    zedges: array defining bin edges in redshift
-		    volumefun: function which returns volume of bin in Mpc^3 * srad
-		               in redshift range z1,z2; called as volumefun(z1,z2) 
 		'''
-		Nsubz = kwargs.get('Nsubz',20)
-		NsubM = kwargs.get('NsubM',20)
-		ii = np.where(arr_between(self.M,(Medges[0],Medges[-1])) &
-		              arr_between(self.z,(zedges[0],zedges[-1])))[0]
+		# kind of hacky to access cosmo through m2M...
+		dVdzdO = interp_dVdzdO((zedges[0]-0.1,zedges[1]+0.1),self.m2M.cosmo)
+		#
 		Mbins = Medges[:-1] + np.diff(Medges)/2
 		zbins = zedges[:-1] + np.diff(zedges)/2
-		Mi = np.digitize(self.M,Medges)
-		zi = np.digitize(self.z,zedges)
-		# create a masked structured array to hold the LF bin data
 		lfShape = Mbins.shape + zbins.shape
-		lf = Table(masked=True)
-		lf['absMag'] = Mbins.astype(np.float32)
-		lf['counts'] = np.zeros(lfShape,dtype=np.float32)
-		lf['rawCounts'] = np.zeros(lfShape,dtype=np.int32)
-		lf['countUnc'] = np.zeros(lfShape,dtype=np.float32)
-		lf['filled'] = np.zeros(lfShape,dtype=np.bool)
-		lf['phi'] = np.zeros(lfShape,dtype=np.float64)
-		lf['rawPhi'] = np.zeros(lfShape,dtype=np.float64)
-		lf['sigPhi'] = np.zeros(lfShape,dtype=np.float64)
+		# assign data points to bins and trim out-of-bounds objects
+		Mi = np.digitize(self.M,Medges) - 1
+		zi = np.digitize(self.z,zedges) - 1
+		ii = np.where( (Mi>=0) & (Mi<len(Mbins)) &
+		               (zi>=0) & (zi<len(zbins)) )[0]
 		# do the counting in bins
-		np.add.at(lf['rawCounts'],(Mi[ii]-1,zi[ii]-1),1)
-		np.add.at(lf['counts'],(Mi[ii]-1,zi[ii]-1),self.weights[ii])
-		np.add.at(lf['countUnc'],(Mi[ii]-1,zi[ii]-1),self.weights[ii]**2)
-		# ???
-		print '''need to be careful -- bins may also not be filled in dM.
-		         need to change the last M bin to have dM = M1-m2M(mlim)'''
-		# calculate volume densities within the bins, accounting for 
-		# unfilled bins
-		dVdM = np.zeros(lfShape)
-		dM = np.diff(Medges)
-		m_min = np.empty(lfShape,dtype=float)
-		m_max = np.empty(lfShape,dtype=float)
-		for j in range(zbins.shape[0]):
-			m_min[:,j] = Medges[:-1] + \
-			    self.m2M(Medges[:-1],zedges[j],inverse=True)
-			m_max[:,j] = Medges[1:] + \
-			    self.m2M(Medges[1:],zedges[j+1],inverse=True)
-			filled_bin = np.where((m_min[:,j] < self.m_lim) & 
-			                      (m_max[:,j] < self.m_lim))[0]
-			partial_bin = np.where((m_min[:,j] < self.m_lim) & 
-			                      (m_max[:,j] > self.m_lim))[0]
-			lf['filled'][filled_bin,j] = True
-			# filled bins
-			dV = volumefun(zedges[j],zedges[j+1])
-			dVdM[filled_bin,j] = dV * dM[j]
-			# partial bins
-			for i in partial_bin:
-				e_z = np.linspace(zedges[j],zedges[j+1],Nsubz)
-				e_M = np.linspace(Medges[i],Medges[i+1],NsubM)
-				e_dVdM = 0.0
-				for ki in range(NsubM-1):
-					for kj in range(Nsubz-1):
-						m_min_ = e_M[ki] +  \
-						         self.m2M(e_M[ki],e_z[kj],inverse=True) 
-						m_max_ = e_M[ki+1] + \
-						         self.m2M(e_M[ki+1],e_z[kj+1],inverse=True)
-						if (m_min_ < self.m_lim) and (m_max_ < self.m_lim):
-							# only do filled bins in subgrid
-							e_dVdM += volumefun(e_z[kj],e_z[kj+1]) * \
-							           (e_M[ki+1] - e_M[ki])
-				dVdM[i,j] = e_dVdM
+		lf = self.init_lf_table(Mbins,zbins)
+		np.add.at( lf['rawCounts'], (Mi[ii],zi[ii]),                1   )
+		np.add.at(    lf['counts'], (Mi[ii],zi[ii]), self.weights[ii]   )
+		np.add.at(  lf['countUnc'], (Mi[ii],zi[ii]), self.weights[ii]**2)
+		#
+		inbounds = self.getinbounds(Medges,zedges)
+		lf['filled'][:] = (inbounds==4)
+		# calculate bin volumes by integrating dVdM = (dV/dz)dzdM
+		#   ... note if there were many redshift bins, could save time
+		#       by only calculating dV once for each filled bin within
+		#       each redshift slice
+		binVol = np.zeros(lfShape)
+		for i,j in zip(*np.where(inbounds > 0)):
+			Mlim = lambda z: np.clip(self.m_lim-self.m2M(self.m_lim,z),
+			                         Medges[i],Medges[i+1])
+			binVol[i,j],_ = dblquad(lambda M,z: dVdzdO(z),
+			                        zedges[j],zedges[j+1],
+			                        lambda z: Medges[i],Mlim)
 		# calculate luminosity function from ~ counts/volume
-		mask = (lf['rawCounts']==0) | (dVdM == 0)
-		vol = np.ma.array(dVdM * self.area_srad, mask=mask)
-		lf['phi'] = np.ma.divide(lf['counts'],vol)
-		lf['rawPhi'] = np.ma.divide(lf['rawCounts'],vol)
-		lf['sigPhi'] = np.ma.divide(np.ma.sqrt(lf['countUnc']),vol)
+		mask = (lf['rawCounts']==0) | (binVol == 0)
+		binVol = np.ma.array(binVol * self.area_srad, mask=mask)
+		lf['phi'] = np.ma.divide(lf['counts'],binVol)
+		lf['rawPhi'] = np.ma.divide(lf['rawCounts'],binVol)
+		lf['sigPhi'] = np.ma.divide(np.ma.sqrt(lf['countUnc']),binVol)
 		return lf
 
 def _integrate_fast(integrand,zrange,Mrange,integrate_kwargs):
