@@ -230,7 +230,15 @@ class JointQLFFitter(object):
 			par = qlfModel.getpar()
 		likefunArgs = (surveys,qlfModel) + self.likefunArgs
 		return self.likefun(par,*likefunArgs)
-	def varyFitParam(self,paramName,surveys,ntry=50):
+	def varyFitParam(self,paramName,surveys,ntry=20,logRange=None):
+		# XXX all of this is not right if these params have more than one
+		#     free value
+		if logRange is None:
+			logrange = {
+			  'logPhiStar':(-1.0,1.5), 'MStar':(-1.5,0.5),
+			  'alpha':(-2.0,0.5), 'beta':(-2.0,0.5),
+			}[paramName]
+		logbins = logrange + (ntry,)
 		#
 		S0 = self._getS(surveys)
 		print 'S0 is ',S0,' at ',self.qlfModel.params[paramName].get()
@@ -241,7 +249,7 @@ class JointQLFFitter(object):
 			qlfModel = self.qlfModel.copy()
 			print 'trying %s[#%d]' % (paramName,i)
 			for sgn in [-1,1]:
-				delv = np.abs(pval0) * sgn*np.logspace(-2,0,ntry)
+				delv = sgn*np.logspace(*logbins)
 				for dv in delv:
 					qlfModel.params[paramName].set(pval0+dv,i=i)
 					qlfModel.params[paramName].fix(i)
@@ -264,7 +272,7 @@ class JointQLFFitter(object):
 		S = np.zeros(n)
 		allpar = np.zeros((n,len(par0)))
 		for i in range(n):
-			par = par0 + sigParam*np.random.norm(len(sigParam))
+			par = par0 + sigParam*np.random.normal(size=len(sigParam))
 			S[i] = self._getS(surveys,qlfModel,par)
 			allpar[i] = par
 		return Table(dict(par=allpar,dS=(S-S0)))
