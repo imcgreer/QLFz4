@@ -264,7 +264,7 @@ class JointQLFFitter(object):
 		S = np.zeros(n)
 		allpar = np.zeros((n,len(par0)))
 		for i in range(n):
-			par = par0 + 0.5*sigParam*np.random.norm(len(sigParam))
+			par = par0 + sigParam*np.random.norm(len(sigParam))
 			S[i] = self._getS(surveys,qlfModel,par)
 			allpar[i] = par
 		return Table(dict(par=allpar,dS=(S-S0)))
