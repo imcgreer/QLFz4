@@ -223,10 +223,16 @@ class JointQLFFitter(object):
 		rv = self.qlfModel.copy()
 		rv.setpar(self.lastFit[0])
 		return rv
+	def _getS(self,surveys,qlfModel=None,par=None):
+		if qlfModel is None:
+			qlfModel = self.qlfModel
+		if par is None:
+			par = qlfModel.getpar()
+		likefunArgs = (surveys,qlfModel) + self.likefunArgs
+		return self.likefun(par,*likefunArgs)
 	def varyFitParam(self,paramName,surveys,ntry=50):
 		#
-		likefunArgs = (surveys,self.qlfModel) + self.likefunArgs
-		S0 = self.likefun(self.qlfModel.getpar(),*likefunArgs)
+		S0 = self._getS(surveys)
 		print 'S0 is ',S0,' at ',self.qlfModel.params[paramName].get()
 		rv = {}
 		#
@@ -251,4 +257,15 @@ class JointQLFFitter(object):
 						break
 			rv[i] = np.array(fitvals)
 		return rv
+	def sampleModels(self,sigParam,surveys,n=100):
+		S0 = self._getS(surveys)
+		par0 = self.qlfModel.getpar()
+		qlfModel = self.qlfModel.copy()
+		S = np.zeros(n)
+		allpar = np.zeros((n,len(par0)))
+		for i in range(n):
+			par = par0 + 0.5*sigParam*np.random.norm(len(sigParam))
+			S[i] = self._getS(surveys,qlfModel,par)
+			allpar[i] = par
+		return Table(dict(par=allpar,dS=(S-S0)))
 
