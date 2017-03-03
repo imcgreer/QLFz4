@@ -94,7 +94,7 @@ class QuasarSurvey(object):
 		    zedges: array defining bin edges in redshift
 		'''
 		# kind of hacky to access cosmo through m2M...
-		dVdzdO = interp_dVdzdO(zedges[0],self.m2M.cosmo)
+		dVdzdO = interp_dVdzdO(zedges,self.m2M.cosmo)
 		#
 		Mbins = Medges[:-1] + np.diff(Medges)/2
 		zbins = zedges[:-1] + np.diff(zedges)/2
@@ -228,6 +228,7 @@ class JointQLFFitter(object):
 		likefunArgs = (surveys,self.qlfModel) + self.likefunArgs
 		S0 = self.likefun(self.qlfModel.getpar(),*likefunArgs)
 		print 'S0 is ',S0,' at ',self.qlfModel.params[paramName].get()
+		rv = {}
 		#
 		for i,pval0 in self.qlfModel.params[paramName].iterfree():
 			fitvals = [(pval0,S0)]
@@ -248,5 +249,6 @@ class JointQLFFitter(object):
 					if S-S0 > 10:
 						# this is more than 3 sigma
 						break
-		return np.array(fitvals)
+			rv[i] = np.array(fitvals)
+		return rv
 
