@@ -235,8 +235,8 @@ class JointQLFFitter(object):
 		#     free value
 		if logRange is None:
 			logrange = {
-			  'logPhiStar':(-1.0,1.5), 'MStar':(-1.5,0.5),
-			  'alpha':(-2.0,0.5), 'beta':(-2.0,0.5),
+			  'logPhiStar':(-1.0,0.0), 'MStar':(-1.5,0.0),
+			  'alpha':(-2.0,0.3), 'beta':(-2.0,0.3),
 			}[paramName]
 		logbins = logrange + (ntry,)
 		#
