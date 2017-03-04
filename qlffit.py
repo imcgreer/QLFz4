@@ -235,7 +235,7 @@ class JointQLFFitter(object):
 		#     free value
 		if logRange is None:
 			logrange = {
-			  'logPhiStar':(-1.0,0.0), 'MStar':(-1.5,0.0),
+			  'logPhiStar':(-1.5,0.0), 'MStar':(-1.5,0.0),
 			  'alpha':(-2.0,0.3), 'beta':(-2.0,0.3),
 			}[paramName]
 		logbins = logrange + (ntry,)
@@ -259,7 +259,7 @@ class JointQLFFitter(object):
 						fitvals.insert(0, (pval0+dv, S) )
 					else:
 						fitvals.append(   (pval0+dv, S) )
-					print pval0,S0,pval0+dv,S,S-S0
+					print pval0,S0,pval0+dv,S,dv,S-S0
 					if S-S0 > 10:
 						# this is more than 3 sigma
 						break
