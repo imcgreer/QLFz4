@@ -4,7 +4,7 @@ import copy
 import itertools
 import numpy as np
 from numpy.ma import mrecords
-from scipy.integrate import dblquad,romberg
+from scipy.integrate import quad,dblquad,romberg
 from scipy.ndimage.filters import convolve
 from scipy import optimize
 from astropy.table import Table
@@ -131,48 +131,90 @@ class QuasarSurvey(object):
 		lf['sigPhi'] = np.ma.divide(np.ma.sqrt(lf['countUnc']),binVol)
 		return lf
 
-def _integrate_fast(integrand,zrange,Mrange,integrate_kwargs):
-	integrate_kwargs.setdefault('tol',integrate_kwargs.get('epsabs',1e-3))
-	integrate_kwargs.setdefault('rtol',integrate_kwargs.get('epsrel',1e-3))
-	inner = lambda z: romberg(integrand,*Mrange,args=(z,),**integrate_kwargs)
-	outer = romberg(inner,*zrange,**integrate_kwargs)
-	return outer
+class QLFIntegrator(object):
+	def __init__(self,Mrange,zrange,dVdzdO):
+		self.Mrange = Mrange
+		self.zrange = zrange
+		self.dVdzdO = dVdzdO
+		self.int_kwargs = {}
 
-def _integrate_full(integrand,zrange,Mrange,nM,nz,integrate_kwargs):
-	integrate_kwargs.setdefault('epsabs',1e-3)
-	integrate_kwargs.setdefault('epsrel',1e-3)
-	# do a full double integration, but break it up into chunks
-	zz = np.linspace(zrange[0],zrange[1],nz)
-	MM = np.linspace(Mrange[0],Mrange[1],nM)
-	_sum = 0
-	for z1,z2 in zip(zz[:-1],zz[1:]):
-		for M1,M2 in zip(MM[:-1],MM[1:]):
-			intp,err = dblquad(integrand, z1, z2,
-			                   lambda z: M1,lambda z: M2,
-			                   **integrate_kwargs)
-			_sum += intp
-	return _sum
+class FullQLFIntegrator(QLFIntegrator):
+	def __init__(self,Mrange,zrange,dVdzdO,**kwargs):
+		super(FullQLFIntegrator,self).__init__(Mrange,zrange,dVdzdO)
+		self.nM = kwargs.pop('nM',20)
+		self.nz = kwargs.pop('nz',10)
+		self.int_kwargs.setdefault('epsabs',kwargs.pop('epsabs',1e-3))
+		self.int_kwargs.setdefault('epsrel',kwargs.pop('epsrel',1e-3))
+		self.zz = np.linspace(self.zrange[0],self.zrange[1],self.nz)
+		self.MM = np.linspace(self.Mrange[0],self.Mrange[1],self.nM)
+	def __call__(self,Phi_Mz,p_Mz,par):
+		#
+		integrand = lambda M,z: Phi_Mz(M,z,par) * p_Mz(M,z) * self.dVdzdO(z)
+		lfsum = 0
+		for z1,z2 in zip(self.zz[:-1],self.zz[1:]):
+			for M1,M2 in zip(self.MM[:-1],self.MM[1:]):
+				intp,err = dblquad(integrand, z1, z2,
+				                   lambda z: M1,lambda z: M2,
+				                   **self.int_kwargs)
+				lfsum += intp
+		return lfsum
 
-def joint_qlf_likelihood_fun(par,surveys,Phi_Mz,dV_dzdO,zrange,Mrange,
-                             nM,nz,fast,integrate_kwargs,verbose):
+class FastQLFIntegrator(QLFIntegrator):
+	def __init__(self,Mrange,zrange,dVdzdO,**kwargs):
+		super(FastQLFIntegrator,self).__init__(Mrange,zrange,dVdzdO)
+		self.int_kwargs.setdefault('divmax',kwargs.pop('divmax',20))
+		self.int_kwargs.setdefault('tol',kwargs.pop('epsabs',1e-3))
+		self.int_kwargs.setdefault('rtol',kwargs.pop('epsrel',1e-3))
+	def __call__(self,Phi_Mz,p_Mz,par):
+		#
+		integrand = lambda M,z: Phi_Mz(M,z,par) * p_Mz(M,z) * self.dVdzdO(z)
+		inner = lambda z: romberg(integrand,*self.Mrange,args=(z,),
+		                          **self.int_kwargs)
+		outer = romberg(inner,*self.zrange,**self.int_kwargs)
+		return outer
+
+class FasterQLFIntegrator(QLFIntegrator):
+	def __init__(self,Mrange,zrange,dVdzdO,**kwargs):
+		super(FasterQLFIntegrator,self).__init__(Mrange,zrange,dVdzdO)
+		self.minProb = kwargs.pop('minProb',1e-3)
+		self.MBinW = kwargs.pop('MBinWidth',0.05)
+		self.zBinW = kwargs.pop('zBinWidth',0.025)
+		self.nM = int( np.diff(self.Mrange) / self.MBinW ) + 1 
+		self.nz = int( np.diff(self.zrange) / self.zBinW ) + 1
+		#
+		self.Medges = np.linspace(self.Mrange[0],self.Mrange[1],self.nM)
+		self.zedges = np.linspace(self.zrange[0],self.zrange[1],self.nz)
+		self.MM = self.Medges[:-1] + np.diff(self.Medges)/2
+		self.zz = self.zedges[:-1] + np.diff(self.zedges)/2
+		#
+		self.V = np.array( [ quad(self.dVdzdO,*zz)[0]
+		                             for zz in zip(self.zedges[:-1],
+		                                           self.zedges[1:]) ] )
+		self.Mi,self.zi = np.meshgrid(self.MM,self.zz,indexing='ij')
+	def __call__(self,Phi_Mz,p_Mz,par):
+		#
+		p_Mz_grid = p_Mz(self.Mi,self.zi)
+		Phi_Mz_grid = Phi_Mz(self.Mi,self.zi,par)
+		#
+		lowProb = p_Mz_grid < self.minProb
+		mask = ~lowProb
+		#
+		lfsum = np.sum(Phi_Mz_grid * p_Mz_grid * self.MBinW 
+		                   * self.V[np.newaxis,:] * mask)
+		return lfsum
+
+def joint_qlf_likelihood_fun(par,surveys,lfintegrator,Phi_Mz,verbose):
+	min_prob = 1e-3
 	first_term,second_term = 0.0,0.0
 	for s in surveys:
 		# first term: sum over each observed quasar
-		# this used to work...
-		#first_term += -2*np.sum(np.log(Phi_Mz(s.M,s.z,par)))
-		prod = [ p_Mz*Phi_Mz(M,z,par) 
-		            for M,z,p_Mz in zip(s.M,s.z,s.weights**-1) ]
-		prod = np.clip(prod,1e-20,np.inf)
+		p_Mizi = s.weights**-1
+		ii = np.where(p_Mizi > min_prob)[0]
+		prod = p_Mizi[ii] * Phi_Mz(s.M[ii],s.z[ii],par) 
 		first_term += -2*np.sum(np.log(prod))
 		# second term: integral of LF over available volume
-		integrand = lambda M,z: Phi_Mz(M,z,par) * s.p_Mz(M,z) * dV_dzdO(z)
-		if fast:
-			_sum = _integrate_fast(integrand,zrange,Mrange,integrate_kwargs)
-		else:
-			_sum = _integrate_full(integrand,zrange,Mrange,
-			                       nM,nz,integrate_kwargs)
-		second_term += 2 * s.area_srad * _sum
-	#
+		lfsum = lfintegrator(Phi_Mz,s.p_Mz,par)
+		second_term += 2 * s.area_srad * lfsum
 	if verbose:
 		print 'testing ',par,first_term,second_term
 	return first_term + second_term
@@ -201,20 +243,32 @@ class JointQLFFitter(object):
 		self.qlfModel = qlfModel
 		self.qlfModel.set_scale('linear')
 		self.fitMethod = kwargs.get('fit_method',NelderMeadFit())
-		self.nM = kwargs.get('nM',20)
-		self.nz = kwargs.get('nz',10)
-		self.fast = kwargs.get('fast',True)
-		self.integrate_kwargs = kwargs.get('integrate_kwargs',{})
+		self.set_integrate_mode(kwargs.get('integrate_mode','fast'),
+		                        kwargs.get('integrate_kwargs',{}))
 		self.verbose = kwargs.get('verbose',False)
-		self.likefunArgs = (self.dVdzdO,self.zrange,self.Mrange,
-		                    self.nM,self.nz,self.fast,
-		                    self.integrate_kwargs,self.verbose)
+	def set_integrate_mode(self,mode,integrate_kwargs={}):
+		self.integrate_mode = mode
+		self.integrate_kwargs = integrate_kwargs
+		if self.integrate_mode == 'full':
+			self.lfintegrator = FullQLFIntegrator(self.Mrange,self.zrange,
+			                                      self.dVdzdO,
+			                                      **self.integrate_kwargs)
+		elif self.integrate_mode == 'fast':
+			self.lfintegrator = FastQLFIntegrator(self.Mrange,self.zrange,
+			                                      self.dVdzdO,
+			                                      **self.integrate_kwargs)
+		elif self.integrate_mode == 'reallyfast':
+			self.lfintegrator = FasterQLFIntegrator(self.Mrange,self.zrange,
+			                                        self.dVdzdO,
+			                                        **self.integrate_kwargs)
+		else:
+			raise ValueError
 	def fit(self,surveys,qlfModel=None,initVals=None):
 		if qlfModel is None:
 			qlfModel = self.qlfModel
 		if initVals is None:
 			initVals = list(qlfModel.getpar())
-		likefunArgs = (surveys,qlfModel) + self.likefunArgs
+		likefunArgs = (surveys,self.lfintegrator,qlfModel,self.verbose)
 		res = self.fitMethod(self.likefun,initVals,*self.fitMethod.args,
 		                     args=likefunArgs,**self.fitMethod.kwargs)
 		self.lastFit = res
@@ -223,12 +277,12 @@ class JointQLFFitter(object):
 		rv = self.qlfModel.copy()
 		rv.setpar(self.lastFit[0])
 		return rv
-	def _getS(self,surveys,qlfModel=None,par=None):
+	def getS(self,surveys,qlfModel=None,par=None):
 		if qlfModel is None:
 			qlfModel = self.qlfModel
 		if par is None:
 			par = qlfModel.getpar()
-		likefunArgs = (surveys,qlfModel) + self.likefunArgs
+		likefunArgs = (surveys,self.lfintegrator,qlfModel,self.verbose)
 		return self.likefun(par,*likefunArgs)
 	def varyFitParam(self,paramName,surveys,ntry=20,logRange=None):
 		# XXX all of this is not right if these params have more than one
@@ -240,7 +294,7 @@ class JointQLFFitter(object):
 			}[paramName]
 		logbins = logrange + (ntry,)
 		#
-		S0 = self._getS(surveys)
+		S0 = self.getS(surveys)
 		print 'S0 is ',S0,' at ',self.qlfModel.params[paramName].get()
 		rv = {}
 		#
@@ -266,14 +320,14 @@ class JointQLFFitter(object):
 			rv[i] = np.array(fitvals)
 		return rv
 	def sampleModels(self,sigParam,surveys,n=100):
-		S0 = self._getS(surveys)
+		S0 = self.getS(surveys)
 		par0 = self.qlfModel.getpar()
 		qlfModel = self.qlfModel.copy()
 		S = np.zeros(n)
 		allpar = np.zeros((n,len(par0)))
 		for i in range(n):
 			par = par0 + sigParam*np.random.normal(size=len(sigParam))
-			S[i] = self._getS(surveys,qlfModel,par)
+			S[i] = self.getS(surveys,qlfModel,par)
 			allpar[i] = par
 		return Table(dict(par=allpar,dS=(S-S0)))
 
