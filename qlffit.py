@@ -4,7 +4,7 @@ import copy
 import itertools
 import numpy as np
 from numpy.ma import mrecords
-from scipy.integrate import quad,dblquad,romberg
+from scipy.integrate import quad,dblquad,romberg,simps
 from scipy.ndimage.filters import convolve
 from scipy import optimize
 from astropy.table import Table
@@ -177,30 +177,35 @@ class FasterQLFIntegrator(QLFIntegrator):
 	def __init__(self,Mrange,zrange,dVdzdO,**kwargs):
 		super(FasterQLFIntegrator,self).__init__(Mrange,zrange,dVdzdO)
 		self.minProb = kwargs.pop('minProb',1e-3)
-		self.MBinW = kwargs.pop('MBinWidth',0.05)
-		self.zBinW = kwargs.pop('zBinWidth',0.025)
-		self.nM = int( np.diff(self.Mrange) / self.MBinW ) + 1 
-		self.nz = int( np.diff(self.zrange) / self.zBinW ) + 1
+		in_MBinW = kwargs.pop('MBinWidth',0.1)
+		in_zBinW = kwargs.pop('zBinWidth',0.05)
+		self.nM = int( np.diff(self.Mrange) / in_MBinW ) + 1 
+		self.nz = int( np.diff(self.zrange) / in_zBinW ) + 1
 		#
 		self.Medges = np.linspace(self.Mrange[0],self.Mrange[1],self.nM)
 		self.zedges = np.linspace(self.zrange[0],self.zrange[1],self.nz)
-		self.MM = self.Medges[:-1] + np.diff(self.Medges)/2
-		self.zz = self.zedges[:-1] + np.diff(self.zedges)/2
+		self.MBinW = np.diff(self.Medges)[0]
+		self.zBinW = np.diff(self.zedges)[0]
 		#
-		self.V = np.array( [ quad(self.dVdzdO,*zz)[0]
-		                             for zz in zip(self.zedges[:-1],
-		                                           self.zedges[1:]) ] )
-		self.Mi,self.zi = np.meshgrid(self.MM,self.zz,indexing='ij')
+		self.dV = self.dVdzdO(self.zedges)
+		self.Mi,self.zi = np.meshgrid(self.Medges,self.zedges,indexing='ij')
+		#
+		self.p_Mz_cache = {}
+		self.lowProbMask = {}
+	def _get_p_Mz_grid(self,p_Mz):
+		p_Mz_grid = self.p_Mz_cache.get(p_Mz)
+		if p_Mz_grid is None:
+			p_Mz_grid = p_Mz(self.Mi,self.zi)
+			self.p_Mz_cache[p_Mz] = p_Mz_grid
+			self.lowProbMask[p_Mz] = p_Mz_grid > self.minProb
+		return p_Mz_grid,self.lowProbMask[p_Mz]
 	def __call__(self,Phi_Mz,p_Mz,par):
 		#
-		p_Mz_grid = p_Mz(self.Mi,self.zi)
+		p_Mz_grid,mask = self._get_p_Mz_grid(p_Mz)
 		Phi_Mz_grid = Phi_Mz(self.Mi,self.zi,par)
 		#
-		lowProb = p_Mz_grid < self.minProb
-		mask = ~lowProb
-		#
-		lfsum = np.sum(Phi_Mz_grid * p_Mz_grid * self.MBinW 
-		                   * self.V[np.newaxis,:] * mask)
+		lfsum_z = simps(Phi_Mz_grid * p_Mz_grid * self.dV, dx=self.zBinW)
+		lfsum = simps(lfsum_z, dx=self.MBinW)
 		return lfsum
 
 def joint_qlf_likelihood_fun(par,surveys,lfintegrator,Phi_Mz,verbose):
