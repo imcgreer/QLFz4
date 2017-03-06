@@ -318,7 +318,7 @@ class JointQLFFitter(object):
 						fitvals.insert(0, (pval0+dv, S) )
 					else:
 						fitvals.append(   (pval0+dv, S) )
-					print pval0,S0,pval0+dv,S,dv,S-S0
+					print ' '.join(['%.3f']*6) % (pval0,S0,pval0+dv,S,dv,S-S0)
 					if S-S0 > 10:
 						# this is more than 3 sigma
 						break
