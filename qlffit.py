@@ -289,7 +289,7 @@ class JointQLFFitter(object):
 			par = qlfModel.getpar()
 		likefunArgs = (surveys,self.lfintegrator,qlfModel,self.verbose)
 		return self.likefun(par,*likefunArgs)
-	def varyFitParam(self,paramName,surveys,ntry=20,logRange=None):
+	def varyFitParam(self,paramName,surveys,ntry=50,logRange=None):
 		# XXX all of this is not right if these params have more than one
 		#     free value
 		if logRange is None:
