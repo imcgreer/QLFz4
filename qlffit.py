@@ -295,11 +295,11 @@ class JointQLFFitter(object):
 		# XXX all of this is not right if these params have more than one
 		#     free value
 		if logRange is None:
-			logrange = {
+			logRange = {
 			  'logPhiStar':(-1.5,0.0), 'MStar':(-1.5,0.0),
 			  'alpha':(-2.0,0.3), 'beta':(-2.0,1.0),
 			}[paramName]
-		logbins = logrange + (ntry,)
+		logbins = logRange + (ntry,)
 		#
 		S0 = self.getS(surveys)
 		print 'S0 is ',S0,' at ',self.qlfModel.params[paramName].get()
