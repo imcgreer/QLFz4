@@ -92,9 +92,25 @@ def run_w4_sim(cosmo):
 	qsoGrid.write('cfhtlsw4_z4sims.fits')
 	return qsoGrid
 
-class W4ColorSel(object):
-	def __call__(self,m,z,absMag=False):
-		return np.ones_like(m)
+class W4ColorSel(sqanalysis.SelectionFunction):
+	photo_complete = 0.9
+	spec_complete = 1.0
+	@staticmethod
+	def w4_cfhtls_dxs_sel(mags,errs,fluxes,fluxerrs,bands):
+		bj = lambda b: bands.index(b)
+		u,g,r,i,z,J,H,K = [ mags[:,bj(b)]
+		                         for b in [ 'CFHT-CFHTLS_Wide-'+_b
+		                                       for _b in 'ugriz' ] +
+		                                  [ 'UKIRT-UKIDSS_DXS-'+_b
+		                                       for _b in 'JHK' ] ]
+		u_snr = ( fluxes[:,bj('CFHT-CFHTLS_Wide-u')] / 
+		          fluxerrs[:,bj('CFHT-CFHTLS_Wide-u')] ) 
+		#s = ( (i>21.5) & (i<22.5) )
+		s = i > 0
+		return s
+	def __init__(self,*args,**kwargs):
+		super(W4ColorSel,self).__init__(*args,**kwargs)
+		self.selector = self.w4_cfhtls_dxs_sel
 
 class m2M(object):
 	def __init__(self,qsoGrid,kcorr):
@@ -111,15 +127,16 @@ def CFHTW4_ColorSample_QLF(cosmo):
 	# XXX
 	simqsos.loadPhotoMap([('CFHT','CFHTLS_Wide'),('UKIRT','UKIDSS_DXS')])
 	kcorr = sqanalysis.SimKCorr(simqsos)
-	# XXX should just be always in observed band
-	#kcorr.calc_grid(1450,invBand='CFHT-i')
 	kcorr.calc_grid('CFHT-i')
+	w4_m2M = m2M(simqsos,kcorr)
+	selfun = W4ColorSel(simqsos,w4_m2M)
+	selfun.calc_grid()
 	# see w4sel.py
 	w4survey_area = ( (335.714 - 332.20) * (1.25 - -0.15)  +
 	                  (335.714 - 333.05) * (-0.15 - -1.022) )
 	w4survey = QuasarSurvey(qsos['mags'][:,3],qsos['z'],22.5,
-	                        w4survey_area,m2M(simqsos,kcorr))
-	w4survey.set_selection_function(W4ColorSel())
+	                        w4survey_area,w4_m2M)
+	w4survey.set_selection_function(selfun)
 	lf = w4survey.calcBinnedLF([-24.5,-23.9,-23.3],[3.6,4.4])
 	print lf
 
