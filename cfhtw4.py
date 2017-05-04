@@ -10,6 +10,8 @@ from astropy.table import Table,hstack
 from simqso import hiforest,sqbase,sqgrids,sqmodels,sqphoto,sqrun,sqanalysis
 from simqso.lumfun import QuasarSurvey
 
+simfile = 'cfhtlsw4_z4sims.fits'
+
 def read_s82_catalog(paperdir=None):
 	if paperdir is None:
 		paperdir = os.path.join(os.environ['HOME'],'research','paper_qlfz4')
@@ -69,7 +71,7 @@ def run_w4_sim(cosmo):
 		m = sqgrids.AbsMagVar(sqgrids.UniformSampler(-25,-23),1450)
 		units = 'luminosity'
 	else:
-		m = sqgrids.AppMagVar(sqgrids.UniformSampler(21.2,22.8),'CFHT-i')
+		m = sqgrids.AppMagVar(sqgrids.UniformSampler(21.4,22.9),'CFHT-i')
 		units = 'flux'
 	z = sqgrids.RedshiftVar(sqgrids.UniformSampler(3.5,4.5))
 	#
@@ -79,17 +81,17 @@ def run_w4_sim(cosmo):
 	absMagVals = sqgrids.FixedSampler(qsoGrid.appMag-tmp_m2M(qsoGrid.z))
 	qsoGrid.addVar(sqgrids.AbsMagVar(absMagVals,1450))
 	#
-	bossDr9model = sqmodels.get_BossDr9_model_vars(qsoGrid,wave,10)
+	bossDr9model = sqmodels.get_BossDr9_model_vars(qsoGrid,wave,2000)
 	qsoGrid.addVars(bossDr9model)
 	#
 	qsoGrid.loadPhotoMap([('CFHT','CFHTLS_Wide'),('UKIRT','UKIDSS_DXS')])
 	#
-	_ = sqrun.buildSpectraBySightLine(wave,qsoGrid,verbose=10)
+	_ = sqrun.buildSpectraBySightLine(wave,qsoGrid,maxIter=5,verbose=10)
 	#
 	photoData = sqphoto.calcObsPhot(qsoGrid.synFlux,qsoGrid.photoMap)
 	qsoGrid.addData(photoData)
 	#
-	qsoGrid.write('cfhtlsw4_z4sims.fits')
+	qsoGrid.write(simfile)
 	return qsoGrid
 
 class W4ColorSel(sqanalysis.SelectionFunction):
@@ -103,10 +105,17 @@ class W4ColorSel(sqanalysis.SelectionFunction):
 		                                       for _b in 'ugriz' ] +
 		                                  [ 'UKIRT-UKIDSS_DXS-'+_b
 		                                       for _b in 'JHK' ] ]
-		u_snr = ( fluxes[:,bj('CFHT-CFHTLS_Wide-u')] / 
+		snr_u = ( fluxes[:,bj('CFHT-CFHTLS_Wide-u')] / 
 		          fluxerrs[:,bj('CFHT-CFHTLS_Wide-u')] ) 
-		#s = ( (i>21.5) & (i<22.5) )
-		s = i > 0
+		# the DXS selection was done in Vega
+		iVega = i - 0.39
+		s = ( (i>21.5) & (i<22.5)                 &
+		      ( (snr_u < 2.5) | ( u-g > 1.0 ) )   &
+		      ( g-r > 0.9 )                       &
+		      ( r-i < 0.5*((g-r)-1.0) + 0.27 )    & 
+	          ( r-i > -0.2 ) & ( r-i < 0.6 )      &
+	          ( i-z > -0.3 ) & ( i-z < 0.25 )     &
+		      ( (J-K > 0.9) | (iVega-J < 0.5*((J-K)-0.2) + 0.4) ) )
 		return s
 	def __init__(self,*args,**kwargs):
 		super(W4ColorSel,self).__init__(*args,**kwargs)
@@ -122,6 +131,7 @@ class m2M(object):
 
 def CFHTW4_ColorSample_QLF(cosmo):
 	qsos = Table.read('cfhtw4qsos.fits')
+	qsos = qsos[qsos['z']>3]
 	simqsos = sqgrids.QsoSimGrid(cosmo=cosmo)
 	simqsos.read('cfhtlsw4_z4sims.fits')
 	# XXX
@@ -137,11 +147,13 @@ def CFHTW4_ColorSample_QLF(cosmo):
 	w4survey = QuasarSurvey(qsos['mags'][:,3],qsos['z'],22.5,
 	                        w4survey_area,w4_m2M)
 	w4survey.set_selection_function(selfun)
-	lf = w4survey.calcBinnedLF([-24.5,-23.9,-23.3],[3.6,4.4])
-	print lf
+	lf = w4survey.calcBinnedLF([-24.4,-23.7,-23.0],[3.6,4.4])
+	return dict(qsos=qsos,simqsos=simqsos,kcorr=kcorr,
+	            survey=w4survey,selfun=selfun,lf=lf)
 
 if __name__=='__main__':
 	from astropy.cosmology import WMAP9
-	run_w4_sim(WMAP9)
+	if not os.path.exists(simfile):
+		run_w4_sim(WMAP9)
 	CFHTW4_ColorSample_QLF(WMAP9)
 
