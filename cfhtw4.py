@@ -75,7 +75,7 @@ def run_w4_sim(cosmo):
 		units = 'flux'
 	z = sqgrids.RedshiftVar(sqgrids.UniformSampler(3.5,4.5))
 	#
-	qsoGrid = sqgrids.QsoSimGrid([m,z],(20,20),100,cosmo=cosmo,units=units)
+	qsoGrid = sqgrids.QsoSimGrid([m,z],(40,20),100,cosmo=cosmo,units=units)
 	#
 	tmp_m2M = lambda z: sqbase.mag2lum('SDSS-i',1450,z,cosmo)
 	absMagVals = sqgrids.FixedSampler(qsoGrid.appMag-tmp_m2M(qsoGrid.z))
