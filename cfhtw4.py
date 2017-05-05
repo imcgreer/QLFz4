@@ -115,8 +115,8 @@ class W4ColorSel(sqanalysis.SelectionFunction):
 		      ( (snr_u < 2.5) | ( u-g > 1.0 ) )   &
 		      ( g-r > 0.9 )                       &
 		      ( r-i < 0.5*((g-r)-1.0) + 0.27 )    & 
-	          ( r-i > -0.2 ) & ( r-i < 0.6 )      &
-	          ( i-z > -0.3 ) & ( i-z < 0.25 )     &
+		      ( r-i > -0.2 ) & ( r-i < 0.6 )      &
+		      ( i-z > -0.3 ) & ( i-z < 0.25 )     &
 		      ( (J-K > 0.9) | (iVega-J < 0.5*((J-K)-0.2) + 0.4) ) )
 		return s
 	def __init__(self,*args,**kwargs):
