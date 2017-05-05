@@ -109,6 +109,8 @@ class W4ColorSel(sqanalysis.SelectionFunction):
 		          fluxerrs[:,bj('CFHT-CFHTLS_Wide-u')] ) 
 		# the DXS selection was done in Vega
 		iVega = i - 0.39
+		J -= 0.94
+		K -= 1.9
 		s = ( (i>21.5) & (i<22.5)                 &
 		      ( (snr_u < 2.5) | ( u-g > 1.0 ) )   &
 		      ( g-r > 0.9 )                       &
